@@ -272,18 +272,190 @@ class RedirectMiddlewareTest extends TestCase
         self::assertTrue($call);
     }
 
-    public function testRemoveAuthorizationHeaderOnRedirect()
+    /**
+     * @testWith ["digest"]
+     *           ["ntlm"]
+     */
+    public function testRemoveCurlAuthorizationOptionsOnRedirectCrossHost($auth)
     {
+        if (!defined('\CURLOPT_HTTPAUTH')) {
+            self::markTestSkipped('ext-curl is required for this test');
+        }
+
         $mock = new MockHandler([
             new Response(302, ['Location' => 'http://test.com']),
-            static function (RequestInterface $request) {
-                self::assertFalse($request->hasHeader('Authorization'));
+            static function (RequestInterface $request, $options) {
+                self::assertFalse(
+                    isset($options['curl'][\CURLOPT_HTTPAUTH]),
+                    'curl options still contain CURLOPT_HTTPAUTH entry'
+                );
+                self::assertFalse(
+                    isset($options['curl'][\CURLOPT_USERPWD]),
+                    'curl options still contain CURLOPT_USERPWD entry'
+                );
                 return new Response(200);
             }
         ]);
         $handler = HandlerStack::create($mock);
         $client = new Client(['handler' => $handler]);
-        $client->get('http://example.com?a=b', ['auth' => ['testuser', 'testpass']]);
+        $client->get('http://example.com?a=b', ['auth' => ['testuser', 'testpass', $auth]]);
+    }
+
+    /**
+     * @testWith ["digest"]
+     *           ["ntlm"]
+     */
+    public function testRemoveCurlAuthorizationOptionsOnRedirectCrossPort($auth)
+    {
+        if (!defined('\CURLOPT_HTTPAUTH')) {
+            self::markTestSkipped('ext-curl is required for this test');
+        }
+
+        $mock = new MockHandler([
+            new Response(302, ['Location' => 'http://example.com:81/']),
+            static function (RequestInterface $request, $options) {
+                self::assertFalse(
+                    isset($options['curl'][\CURLOPT_HTTPAUTH]),
+                    'curl options still contain CURLOPT_HTTPAUTH entry'
+                );
+                self::assertFalse(
+                    isset($options['curl'][\CURLOPT_USERPWD]),
+                    'curl options still contain CURLOPT_USERPWD entry'
+                );
+                return new Response(200);
+            }
+        ]);
+        $handler = HandlerStack::create($mock);
+        $client = new Client(['handler' => $handler]);
+        $client->get('http://example.com?a=b', ['auth' => ['testuser', 'testpass', $auth]]);
+    }
+
+    /**
+     * @testWith ["digest"]
+     *           ["ntlm"]
+     */
+    public function testRemoveCurlAuthorizationOptionsOnRedirectCrossScheme($auth)
+    {
+        if (!defined('\CURLOPT_HTTPAUTH')) {
+            self::markTestSkipped('ext-curl is required for this test');
+        }
+
+        $mock = new MockHandler([
+            new Response(302, ['Location' => 'http://example.com?a=b']),
+            static function (RequestInterface $request, $options) {
+                self::assertFalse(
+                    isset($options['curl'][\CURLOPT_HTTPAUTH]),
+                    'curl options still contain CURLOPT_HTTPAUTH entry'
+                );
+                self::assertFalse(
+                    isset($options['curl'][\CURLOPT_USERPWD]),
+                    'curl options still contain CURLOPT_USERPWD entry'
+                );
+                return new Response(200);
+            }
+        ]);
+        $handler = HandlerStack::create($mock);
+        $client = new Client(['handler' => $handler]);
+        $client->get('https://example.com?a=b', ['auth' => ['testuser', 'testpass', $auth]]);
+    }
+
+    /**
+     * @testWith ["digest"]
+     *           ["ntlm"]
+     */
+    public function testRemoveCurlAuthorizationOptionsOnRedirectCrossSchemeSamePort($auth)
+    {
+        if (!defined('\CURLOPT_HTTPAUTH')) {
+            self::markTestSkipped('ext-curl is required for this test');
+        }
+
+        $mock = new MockHandler([
+            new Response(302, ['Location' => 'http://example.com:80?a=b']),
+            static function (RequestInterface $request, $options) {
+                self::assertFalse(
+                    isset($options['curl'][\CURLOPT_HTTPAUTH]),
+                    'curl options still contain CURLOPT_HTTPAUTH entry'
+                );
+                self::assertFalse(
+                    isset($options['curl'][\CURLOPT_USERPWD]),
+                    'curl options still contain CURLOPT_USERPWD entry'
+                );
+                return new Response(200);
+            }
+        ]);
+        $handler = HandlerStack::create($mock);
+        $client = new Client(['handler' => $handler]);
+        $client->get('https://example.com?a=b', ['auth' => ['testuser', 'testpass', $auth]]);
+    }
+
+    /**
+     * @testWith ["digest"]
+     *           ["ntlm"]
+     */
+    public function testNotRemoveCurlAuthorizationOptionsOnRedirect($auth)
+    {
+        if (!defined('\CURLOPT_HTTPAUTH') || !defined('\CURLOPT_USERPWD')) {
+            self::markTestSkipped('ext-curl is required for this test');
+        }
+
+        $mock = new MockHandler([
+            new Response(302, ['Location' => 'http://example.com/2']),
+            static function (RequestInterface $request, $options) {
+                self::assertTrue(
+                    isset($options['curl'][\CURLOPT_HTTPAUTH]),
+                    'curl options does not contain expected CURLOPT_HTTPAUTH entry'
+                );
+                self::assertTrue(
+                    isset($options['curl'][\CURLOPT_USERPWD]),
+                    'curl options does not contain expected CURLOPT_USERPWD entry'
+                );
+                return new Response(200);
+            }
+        ]);
+        $handler = HandlerStack::create($mock);
+        $client = new Client(['handler' => $handler]);
+        $client->get('http://example.com?a=b', ['auth' => ['testuser', 'testpass', $auth]]);
+    }
+
+    public function crossOriginRedirectProvider()
+    {
+        return [
+            ['http://example.com/123', 'http://example.com/', false],
+            ['http://example.com/123', 'http://example.com:80/', false],
+            ['http://example.com:80/123', 'http://example.com/', false],
+            ['http://example.com:80/123', 'http://example.com:80/', false],
+            ['http://example.com/123', 'https://example.com/', true],
+            ['http://example.com/123', 'http://www.example.com/', true],
+            ['http://example.com/123', 'http://example.com:81/', true],
+            ['http://example.com:80/123', 'http://example.com:81/', true],
+            ['https://example.com/123', 'https://example.com/', false],
+            ['https://example.com/123', 'https://example.com:443/', false],
+            ['https://example.com:443/123', 'https://example.com/', false],
+            ['https://example.com:443/123', 'https://example.com:443/', false],
+            ['https://example.com/123', 'http://example.com/', true],
+            ['https://example.com/123', 'https://www.example.com/', true],
+            ['https://example.com/123', 'https://example.com:444/', true],
+            ['https://example.com:443/123', 'https://example.com:444/', true],
+        ];
+    }
+
+    /**
+     * @dataProvider crossOriginRedirectProvider
+     */
+    public function testHeadersTreatmentOnRedirect($originalUri, $targetUri, $isCrossOrigin)
+    {
+        $mock = new MockHandler([
+            new Response(302, ['Location' => $targetUri]),
+            static function (RequestInterface $request) use ($isCrossOrigin) {
+                self::assertSame(!$isCrossOrigin, $request->hasHeader('Authorization'));
+                self::assertSame(!$isCrossOrigin, $request->hasHeader('Cookie'));
+
+                return new Response(200);
+            }
+        ]);
+        $handler = HandlerStack::create($mock);
+        $client = new Client(['handler' => $handler]);
+        $client->get($originalUri, ['auth' => ['testuser', 'testpass'], 'headers' => ['Cookie' => 'foo=bar']]);
     }
 
     public function testNotRemoveAuthorizationHeaderOnRedirect()
